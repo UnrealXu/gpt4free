@@ -1,3 +1,4 @@
+# Automatically merge upstream updates every six hours.
 name: Sync upstream
 on:
   schedule:
