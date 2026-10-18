@@ -43,7 +43,7 @@ Table of contents
   - [Python (pip / from source / partial installs)](#python-pip--from-source--partial-installs)
 - [Running the app](#running-the-app)
   - [GUI (web client)](#gui-web-client)
-  - [FastAPI / Interference API](#fastapi--interference-api)
+  - [FastAPI / Inference API](#fastapi--inference-api)
   - [CLI](#cli)
   - [Optional provider login (desktop in container)](#optional-provider-login-desktop-in-container)
 - [Using the Python client](#using-the-python-client)
@@ -142,16 +142,6 @@ Notes:
 - The slim image can update the g4f package on startup and installs additional dependencies as needed.
 - In this example, the Interference API is mapped to 1337.
 
-### Windows Guide (.exe)
-
-👉 Check out the Windows launcher for GPT4Free:  
-🔗 [https://github.com/gpt4free/g4f.exe](https://github.com/gpt4free/g4f.exe) 🚀  
-
-1. Download the release artifact `g4f.exe.zip` from:
-   https://github.com/xtekky/gpt4free/releases/latest
-2. Unzip and run `g4f.exe`.
-3. Open GUI at: http://localhost:8080/chat/
-4. If Windows Firewall blocks access, allow the application.
 
 ### Python Installation (pip / from source / partial installs)
 
@@ -374,7 +364,7 @@ Provider requirements may include:
 
 ---
 
-## Interference API (OpenAI‑compatible)
+## Inference API (OpenAI‑compatible)
 - The Interference API enables OpenAI-like workflows routed through GPT4Free provider selection.
 - Docs: [docs/interference-api.md](https://github.com/gpt4free/g4f.dev/blob/main/docs/interference-api.md)
 - Default endpoint (example slim docker): `http://localhost:1337/v1`
@@ -426,12 +416,6 @@ Repository: https://github.com/xtekky/gpt4free
 ## Credits, contributors & attribution
 - Core creators: [@xtekky](https://github.com/xtekky) (original), maintained by [@hlohaus](https://github.com/hlohaus).
 - Full contributor graph: https://github.com/xtekky/gpt4free/graphs/contributors
-- Notable code inputs and attributions:
-  - `har_file.py` — input from [xqdoo00o/ChatGPT-to-API](https://github.com/xqdoo00o/ChatGPT-to-API)
-  - `PerplexityLabs.py` — input from [nathanrchn/perplexityai](https://github.com/nathanrchn/perplexityai)
-  - `Gemini.py` — input from [dsdanielpark/Gemini-API](https://github.com/dsdanielpark/Gemini-API) and [HanaokaYuzu/Gemini-API](https://github.com/HanaokaYuzu/Gemini-API)
-  - `MetaAI.py` — inspired by [meta-ai-api by Strvm](https://github.com/Strvm/meta-ai-api)
-  - `proofofwork.py` — input from [missuo/FreeGPT35](https://github.com/missuo/FreeGPT35)
 
 Many more contributors are acknowledged in the repository.
 
