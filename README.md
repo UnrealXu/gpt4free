@@ -39,6 +39,7 @@ Table of contents
 - [Installation](#installation)
   - [Docker (recommended)](#docker-recommended)
   - [Slim Docker image](#slim-docker-image)
+  - [Sandbox desktop (Docker)](#sandbox-desktop-docker)
   - [Windows (.exe)](#windows-exe)
   - [Python (pip / from source / partial installs)](#python-pip--from-source--partial-installs)
 - [Running the app](#running-the-app)
@@ -92,6 +93,13 @@ Table of contents
 
 ---
 
+## Related projects
+- [g4f-go](g4f-go/README.md) – Self-contained Go launcher for g4f (downloads CPython + g4f on demand)
+- [remote_desktop](projects/remote-desktop/) – WebRTC-based remote desktop host/viewer
+- [sandbox-desktop](docker/sandbox-menu/README.md) – TigerVNC + Xfce + noVNC desktop in Docker with preinstalled coding agents ([start script](bin/start-sandbox-desktop.sh), [Dockerfile](docker/Dockerfile-sandbox-desktop))
+
+---
+
 ## Requirements & compatibility
 - Python 3.10+ recommended.
 - Google Chrome/Chromium for providers using browser automation.
@@ -142,6 +150,37 @@ Notes:
 - The slim image can update the g4f package on startup and installs additional dependencies as needed.
 - In this example, the Interference API is mapped to 1337.
 
+### Sandbox desktop (Docker)
+A full Xfce desktop (TigerVNC + noVNC) with the g4f API and a one-click
+**Install & Open** menu for 100+ AI tools and providers — coding agents,
+browsers, gateways, local runtimes and assistants. See
+[docker/sandbox-menu/README.md](docker/sandbox-menu/README.md) for the menu,
+the tool list and the settings.
+
+```bash
+docker run -d --name g4f-sandbox-desktop \
+  -p 9090:9090 -p 5900:5900 \
+  --shm-size="2gb" \
+  -v ${PWD}:/app/gpt4free \
+  -v ${PWD}/sandbox-home/.config:/home/pn/.config \
+  -v ${PWD}/sandbox-home/.local:/home/pn/.local \
+  hlohaus789/g4f:latest-sandbox-desktop
+```
+- Desktop (browser): http://localhost:9090/desktop/ · API: http://localhost:9090/ · Direct VNC: `localhost:5900`
+- `-v ${PWD}:/app/gpt4free` mounts your app into the sandbox at the path the
+  image's editable g4f install points at, so the API serves your code and the
+  agents can edit it. Mount at `/app/gpt4free`, not `/app`.
+- `-v ${PWD}/sandbox-home/.config:/home/pn/.config` and `…/.local:/home/pn/.local`
+  keep agent configs, credentials, caches and the sandbox settings across
+  container restarts — without them every new container starts with an empty
+  home and every tool asks for its login again. Do not mount over `/home/pn`
+  itself: the embedded Python and g4f runtime live in `/home/pn/.g4f`.
+- To give the agents a throwaway profile instead, point `HOME` at a mounted
+  directory: `-v ${PWD}/agent-home:/home/pn/work` plus **Sandbox Settings** →
+  `sandbox-cli settings --home /home/pn/work`.
+- `bin/start-sandbox-desktop.sh` wraps the same run (and
+  `docker/docker-compose.sandbox-desktop.yml`) with `--build`, `--pull`,
+  `--port`, `shell`, `logs` and `stop`.
 
 ### Python Installation (pip / from source / partial installs)
 
@@ -479,6 +518,11 @@ GNU General Public License for more details.
 ---
 
 ## Appendix: Quick commands & examples
+
+Install g4f-go (launcher):
+```bash
+curl -fsSL https://raw.githubusercontent.com/xtekky/gpt4free/main/bin/install.sh | bash
+```
 
 Install (pip):
 ```bash
