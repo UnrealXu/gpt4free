@@ -18,6 +18,11 @@
 # afterwards the CLI starts instantly in the same terminal window (Chrome
 # opens on the desktop instead). nodejs/npm are already in the image for the
 # npm-based tools, everything else is one click. Runs as `pn`.
+#
+# The g4f API runs the same command for the apps it serves by hostname: a
+# request to <app>.g4f.local for an app that is not running starts
+# `sandbox-cli <app>` in the background (see g4f/api/sandbox_apps.py), so the
+# hostname works without opening the menu first.
 
 set -u
 
@@ -1046,6 +1051,18 @@ MSTY_WRAPPER
     have msty || die "msty not on PATH after the install"
 }
 
+# Kate is the KDE text editor and the one editor the menu installs from the
+# distribution instead of a vendor script: Debian ships it as `kate`, and apt
+# pulls its KDE/Qt runtime in with it. The binary lands in /usr/bin, already on
+# PATH, so no link is needed.
+ensure_kate() {
+    have kate && return 0
+    log "installing Kate (apt)..."
+    as_root apt-get update -qq || die "apt-get update failed"
+    as_root apt-get install -y -qq kate || die "could not install Kate"
+    have kate || die "kate not on PATH after the install"
+}
+
 # LibreChat is not packaged: it is a Node monorepo that needs MongoDB and a
 # full frontend build. The checkout lives in ~/.librechat, the database in
 # ~/.librechat-data (started by ensure_librechat, kept running by run_tool).
@@ -1534,8 +1551,8 @@ export const maxDuration = 30;
 // model lets g4f choose the provider and the model itself; G4F_MODEL in
 // .env.local overrides it.
 const g4f = createOpenAI({
-  baseURL: process.env.G4F_API_BASE_URL ?? "http://127.0.0.1:8080/v1",
-  apiKey: process.env.G4F_API_KEY ?? "g4f",
+  baseURL: process.env.G4F_API_BASE_URL || "http://127.0.0.1:8080/v1",
+  apiKey: process.env.G4F_API_KEY || "g4f",
 });
 
 export async function POST(req: Request) {
@@ -1552,7 +1569,7 @@ export async function POST(req: Request) {
   const aiSDKTools = { ...frontendTools(tools ?? {}) };
   const result = streamText({
     abortSignal: req.signal,
-    model: g4f.chat(process.env.G4F_MODEL ?? "auto"),
+    model: g4f.chat(process.env.G4F_MODEL || "auto"),
     messages: await convertToModelMessages(messages, { tools: aiSDKTools }),
     tools: aiSDKTools,
     ...(system === undefined ? {} : { system }),
@@ -1564,6 +1581,44 @@ export async function POST(req: Request) {
   });
 }
 ROUTE
+}
+
+# Next.js blocks dev-only resources (_next chunks, the HMR websocket) whose
+# Origin is not in allowedDevOrigins, which is what the browser sends when the
+# app is opened through the host router (http://assistant-ui.g4f.local/) rather
+# than through 127.0.0.1. Without the entry the page loads but every chunk and
+# the HMR socket come back 403. The generated next.config.ts is replaced with
+# one that lists the sandbox host names and keeps the withAui() wrapper the
+# template ships; the marker comment keeps later launches from overwriting
+# edits made in the app.
+write_assistant_ui_next_config() {
+    local config="$HOME/$ASSISTANT_UI_DIR_NAME/next.config.ts"
+    [ -f "$config" ] || return 0
+    grep -q "sandbox-cli" "$config" 2>/dev/null && return 0
+    local suffix="${G4F_DOMAIN_SUFFIX:-g4f.local}"
+    if grep -q "allowedDevOrigins" "$config" 2>/dev/null; then
+        # A newer template (or the user) already sets it: leave the list alone
+        # and only add the sandbox host names when they are missing.
+        grep -q "assistant-ui\.$suffix" "$config" 2>/dev/null && return 0
+        sed -i "s/allowedDevOrigins: *\[/allowedDevOrigins: [\"assistant-ui.$suffix\", \"*.$suffix\", /" \
+            "$config" || die "could not add the sandbox host names to next.config.ts"
+        return 0
+    fi
+    # Only rewrite the shape the template ships; anything else is left alone
+    # rather than clobbered.
+    grep -q "withAui" "$config" 2>/dev/null || return 0
+    cat >"$config" <<CONFIG
+// Written by sandbox-cli: the app is also served as assistant-ui.$suffix, and
+// Next.js blocks dev resources (chunks, HMR) whose Origin is not listed here.
+import { withAui } from "@assistant-ui/next";
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  allowedDevOrigins: ["assistant-ui.$suffix", "*.$suffix"],
+};
+
+export default withAui(nextConfig);
+CONFIG
 }
 
 # The addresses the sandbox serves through the g4f API: every app is reachable
@@ -1944,6 +1999,17 @@ run_tool() {
             log "starting code-server on http://127.0.0.1:$CODE_SERVER_PORT (Ctrl-C to stop)"
             launch "VS Code Web" code-server --auth none \
                 --bind-addr "127.0.0.1:$CODE_SERVER_PORT" "${@:2}" ;;
+        kate)
+            ensure_kate
+            if [ "$INSTALL_ONLY" = 1 ]; then
+                log "Kate is installed and ready"
+                exit 0
+            fi
+            # Kate is a GUI app: open it on the desktop, detached, so the
+            # launcher terminal can close while the editor keeps running.
+            log "opening Kate on the desktop"
+            nohup setsid kate >/tmp/kate.log 2>&1 &
+            exit 0 ;;
         openclaw)
             ensure_script "$OPENCLAW_INSTALLER" openclaw "OpenClaw"
             launch OpenClaw openclaw "${@:2}" ;;
@@ -2038,6 +2104,7 @@ run_tool() {
             configure_g4f
             write_assistant_ui_env
             write_assistant_ui_route
+            write_assistant_ui_next_config
             log "starting assistant-ui on http://127.0.0.1:$ASSISTANT_UI_PORT (Ctrl-C to stop)"
             cd "$HOME/$ASSISTANT_UI_DIR_NAME" || die "the assistant-ui app is missing"
             launch "assistant-ui" npm run dev -- \
@@ -2135,7 +2202,8 @@ list_tools() {
         assistant-ui "assistant-ui web UI (Next.js, backed by the g4f API)"
     printf '%s\n' "Editors"
     printf '  %-15s %s\n' \
-        code-server "VS Code Web (code-server)"
+        code-server "VS Code Web (code-server)" \
+        kate        "Kate text editor (KDE)"
     printf '%s\n' "Assistants"
     printf '  %-15s %s\n' \
         openclaw    "OpenClaw CLI" \
