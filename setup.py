@@ -38,8 +38,6 @@ EXTRA_REQUIRE = {
         "setuptools",
         "markitdown[all]",
         "python-dotenv",
-        "wasmtime",
-        "numpy",
         "PyYAML",
         "pystray",
         "cryptography",
@@ -94,6 +92,10 @@ EXTRA_REQUIRE = {
         "cairosvg",
     ],
     "tracing": ["langfuse"],
+    "wasmtime": [
+        "wasmtime",
+        "numpy",
+    ],
 }
 
 DESCRIPTION = (
