@@ -74,6 +74,7 @@ preinstalled (from the official  image) for the npm-based tools; the rest is ins
 | Install & Open LobeChat  | `lobechat`  | GitHub release AppImage     | `lobechat`     |
 | Install & Open Msty Studio | `msty`    | vendor "latest" AppImage    | `msty`         |
 | Install & Open SillyTavern | `sillytavern` | git clone + `npm install` | `node`       |
+| Install & Open Open WebUI | `open-webui` | pip `open-webui` (user) | `open-webui` |
 | Install & Open Open WebUI Computer | `cptr` | pip `cptr` (user)     | `cptr`         |
 | Install & Open VS Code Web | `code-server` | code-server.dev install script | `code-server` |
 | Install & Open Kate      | `kate`      | apt `kate` (Debian)         | `kate`         |
@@ -115,7 +116,7 @@ preinstalled (from the official  image) for the npm-based tools; the rest is ins
 | Install & Open AI Image Detector | `aidetect` | pip `git+lynote-ai/ai-image-detector` | `aidetect` |
 | Install & Open OpenBot   | `openbot`   | GitHub release AppImage     | `openbot`      |
 | Install & Open ThinkRail | `thinkrail` | JetBrains install script    | `thinkrail`    |
-| Install & Open Orca      | `orca`      | GitHub release AppImage     | `orca`         |
+| Install & Open Orca      | `orca`      | GitHub latest AppImage (stable URL) | `orca`, `orca-ide` |
 | Install & Open VoiceStudio | `voicestudio` | GitHub release AppImage (x64) | `voicestudio` |
 | Install & Open HyperFrames | `hyperframes` | npm `hyperframes`         | `hyperframes`  |
 | Install & Open DeepTutor | `deeptutor` | pip `deeptutor[full]`       | `deeptutor`    |
@@ -136,9 +137,10 @@ public HTTPS URL, and the **Langfuse CLI** (`langfuse`) for inspecting LLM
 traces and prompts, **local AI** runtimes
 (`ollama`, `llamacpp`, `lmstudio`, `jan`) that serve models on
 the machine itself, **chat UIs** (`librechat`, `lobechat`, `msty`,
-`sillytavern`, `cptr`, `assistant-ui`) that put a chat front end on top of the
-g4f API, browser and desktop **editors** (`code-server`, VS Code Web served by
-code-server, and the KDE **Kate** text editor), **assistant/agent CLIs**
+`sillytavern`, `open-webui`, `assistant-ui`) that put a chat front end on top of
+the g4f API, browser and desktop **editors** (`code-server`, VS Code Web served
+by code-server, and the KDE **Kate** text editor), **assistants** such as
+Open WebUI Computer (`cptr`), and **assistant/agent CLIs**
 (`openclaw`, `fabric`, `sgpt`, `gptme`, `llm`) that live in the terminal,
 the **Writing** tools that humanize or score generated copy, and an **Agent
 Skills** menu that installs skill packs and cross-session memory into the
@@ -180,7 +182,12 @@ resolved from the GitHub API, the AppImage is unpacked into
 `~/.local/bin` pins `APPDIR` and adds `--no-sandbox` only when unprivileged
 user namespaces are unavailable. OpenBot and Orca ship x64 and arm64 assets;
 VoiceStudio only ships x64. The entries open the apps detached on the desktop,
-like Jan and LobeChat. **ThinkRail** instead uses JetBrains' own installer,
+like Jan and LobeChat. Orca instead uses its stable
+`/releases/latest/download/` AppImage URL (the API lookup is rate-limited) and
+installs a launcher that turns on software rendering and disables the GPU,
+because Orca's Chromium GPU process crashes on the sandbox's virtual display.
+It is also available as `orca-ide`, the upstream name for the Linux CLI.
+**ThinkRail** instead uses JetBrains' own installer,
 which verifies a SHA-256 and writes `~/.local/bin/thinkrail`; the entry installs
 `git` too, because ThinkRail needs it to open a project.
 
@@ -316,16 +323,30 @@ The same entry can install this menu **inside** a Polli sandbox
 over ssh, then runs `polli-sandbox-bootstrap.sh` there. A Polli VM is headless,
 so without options the copy is useful from a terminal (`sandbox-cli list`,
 `sandbox-cli <tool>`). Pass `--desktop`, or answer yes to the prompt, to also
-install Xfce + TigerVNC; the bootstrap starts an Xvnc display bound to
-`127.0.0.1:5900` and prints the tunnel:
+install Xfce + TigerVNC, `g4f-go` and noVNC (`/usr/share/novnc`). The bootstrap
+then:
+
+- patches the Applications menu (including removing the stock Internet and
+  Development menus);
+- starts an Xvnc display bound to `127.0.0.1:5900`;
+- starts `g4f-go api` on `127.0.0.1:8080` with `G4F_VNC_PORT=5900`,
+  `G4F_NOVNC_DIR=/usr/share/novnc` and `G4F_DOMAIN_ROUTER=0` (the VM has no
+  app hostnames in `/etc/hosts`);
+- prints the two tunnels to open from your machine:
 
 ```bash
-ssh -L 5900:127.0.0.1:5900 <sandbox-id>.polli
+ssh -L 8080:127.0.0.1:8080 <sandbox-id>.polli   # http://127.0.0.1:8080/desktop/
+ssh -L 5900:127.0.0.1:5900 <sandbox-id>.polli   # direct VNC client
 ```
 
-Point a VNC client at `127.0.0.1:5900` to use the installed Applications menu.
-The tunnel keeps the VNC port off the sandbox's public interfaces, and the open
-ssh connection also keeps the sandbox from pausing.
+Open `http://127.0.0.1:8080/desktop/` for the noVNC desktop (with the clipboard
+bridge and `resize=off`), or point a VNC client at `127.0.0.1:5900` for the
+raw session. The tunnels keep both ports off the sandbox's public interfaces,
+and the open ssh connection also keeps the sandbox from pausing. The first
+`g4f-go api` start downloads its CPython + g4f runtime; watch
+`/tmp/g4f-sandbox-api.log` inside the VM if the page is not up yet. Set
+`G4F_API_KEY` before running the bootstrap to put a password on the web
+desktop (any username, password = key).
 
 ### Categories
 
@@ -342,17 +363,18 @@ Each `.desktop` file carries `Categories=X-G4F-Sandbox;X-G4F-<Cat>;` instead of
 | **Agent Skills** | `X-G4F-Skills`    | `ecc`, `superpowers`, `graphify`, `claude-mem` |
 | **Gateways**     | `X-G4F-Gateway`   | `omniroute`, `litellm`, `langfuse`, `pi-freeflow`, `proxy`, `tunnel`      |
 | **Local AI**     | `X-G4F-LocalAI`   | `ollama`, `llamacpp`, `lmstudio`, `jan` |
-| **Chat UIs**     | `X-G4F-ChatUI`    | `librechat`, `lobechat`, `msty`, `sillytavern`, `cptr`, `dsh`, `assistant-ui` |
+| **Chat UIs**     | `X-G4F-ChatUI`    | `librechat`, `lobechat`, `msty`, `sillytavern`, `open-webui`, `dsh`, `assistant-ui` |
 | **Editors**      | `X-G4F-Editor`    | `code-server`, `kate` |
 | **Writing**      | `X-G4F-Writing`   | `humanizer`, `ai-detect`, `aidetect` |
 | **Media**        | `X-G4F-Media`     | `polli`, `voicestudio`, `hyperframes`          |
 | **Sandboxes**    | `X-G4F-Sandboxes` | `polli-sandbox`                                |
-| **Assistants**   | `X-G4F-Assistant` | `dsh`, `openclaw`, `fabric`, `sgpt`, `gptme`, `llm`, `huggingface`, `deeptutor`, `nanobot`, `agent-reach` |
+| **Assistants**   | `X-G4F-Assistant` | `cptr`, `dsh`, `openclaw`, `fabric`, `sgpt`, `gptme`, `llm`, `huggingface`, `deeptutor`, `nanobot`, `agent-reach` |
 
 The menus are declared by patching the stock
 `/etc/xdg/menus/xfce-applications.menu` at build time
 (`patch-xfce-menu.py`), which inserts the thirteen `<Menu>` blocks just before its
-`<DefaultMergeDirs/>` node. Shipping them as a merged menu file under
+`<DefaultMergeDirs/>` node and removes the stock top-level **Internet** (XML
+name `Network`) and **Development** menus. Shipping them as a merged menu file under
 `/etc/xdg/menus/applications-merged/` does **not** work: garcon copies a merged
 file's elements with `g_node_traverse(..., depth=2, G_IN_ORDER)`, which never
 descends to the nested `<Menu>` nodes, so the menus are silently dropped and
@@ -460,15 +482,19 @@ Open the host page on this desktop, press **Share**, then scan the QR code from
 the phone; extra `remote_desktop` flags pass through, for example
 `sandbox-cli remote-desktop --port 8765 --open-browser`.
 
-## Using g4f with OpenCode, Copilot, Hermes and LibreChat
+## Using g4f with OpenCode, Copilot, Hermes, LibreChat and Open WebUI
 
-The OpenCode, Copilot, Hermes and LibreChat menu launchers configure an
-OpenAI-compatible provider to use the g4f API at `http://127.0.0.1:8080/v1`
-(or `:9090` when that endpoint is reachable). OpenCode receives an inline
-config, Copilot receives its BYOK environment variables, Hermes gets an alias
-(and, when a model is chosen, its `model.*` settings) written through
-`hermes config set` (its config is YAML and the image ships no YAML parser),
-and LibreChat gets a custom endpoint in `librechat.yaml`.
+The OpenCode, Copilot, Hermes, LibreChat and Open WebUI menu launchers
+configure an OpenAI-compatible provider to use the g4f API at
+`http://127.0.0.1:8080/v1` (or `:9090` when that endpoint is reachable).
+OpenCode receives an inline config, Copilot receives its BYOK environment
+variables, Hermes gets an alias (and, when a model is chosen, its `model.*`
+settings) written through `hermes config set` (its config is YAML and the
+image ships no YAML parser), LibreChat gets a custom endpoint in
+`librechat.yaml`, and Open WebUI gets `OPENAI_API_BASE_URL` /
+`OPENAI_API_KEY` plus its data directory under `~/.open-webui`. The Open WebUI
+connection is a first-launch setting: after the admin account exists, change
+it under **Settings → Admin → Connections** if the g4f endpoint moves.
 
 OpenCode, Hermes and LibreChat always register the g4f provider with model
 `auto`, so it is available in the model picker even before anything is chosen.
@@ -539,6 +565,21 @@ The **Public URLs** entry (`sandbox-cli urls`) prints the hostname list, and
 needs for them. The noVNC desktop lives at `desktop.g4f.local` on the same
 port.
 
+The noVNC client bridges the **browser clipboard** to the VM: `Ctrl+V` in the
+desktop pastes into the VM, and text copied in the VM is mirrored into the
+browser clipboard where the Async Clipboard API is available (secure origins;
+the clipboard panel stays as the fallback). It defaults to **`resize=off`**,
+so opening the same session from a different device does not remotely resize
+the Xvnc desktop; each viewer can still pick `off`/`scale`/`remote` in the
+noVNC settings panel.
+
+Set `G4F_API_KEY` on the container (or `bin/start-sandbox-desktop.sh
+--api-key KEY`) to require a password for the API, the noVNC desktop and all
+routed apps. The browser's login accepts **any username**; the password is the
+key. `G4F_DOMAIN_SUFFIX` changes the `g4f.local` suffix and
+`G4F_DOMAIN_ROUTER=0` disables hostname routing. See
+[`docs/sandbox-desktop.md`](../../docs/sandbox-desktop.md) for all options.
+
 ### Domain routing
 
 Every app in the menu is reachable by hostname through the same g4f API port,
@@ -552,6 +593,7 @@ which is what the **Public URLs** entry (`sandbox-cli urls`) lists:
 | `litellm.g4f.local` | LiteLLM gateway | `4000.g4f.local` |
 | `librechat.g4f.local` | LibreChat | `3080.g4f.local` |
 | `sillytavern.g4f.local` | SillyTavern | `8601.g4f.local` |
+| `open-webui.g4f.local` | Open WebUI | `8603.g4f.local` |
 | `cptr.g4f.local` | Open WebUI Computer | `8000.g4f.local` |
 | `code-server.g4f.local` | code-server | `8602.g4f.local` |
 | `llamacpp.g4f.local` | llama.cpp server | `11435.g4f.local` |
@@ -559,6 +601,20 @@ which is what the **Public URLs** entry (`sandbox-cli urls`) lists:
 | `remote-desktop.g4f.local` | Remote Desktop | `8765.g4f.local` |
 | `desktop.g4f.local` | noVNC desktop | — |
 | `pi-freeflow.g4f.local` | pi-freeflow | `28180.g4f.local` |
+
+SillyTavern is installed with `listen: true` and its IP/host whitelists
+disabled (with `securityOverride` for its listen-mode startup check), so the
+`*.g4f.local` names above and a `sandbox-cli tunnel` URL work without further
+configuration. Remove those settings in `~/.sillytavern/config.yaml` to keep it
+on localhost only.
+
+Its chat connection is preconfigured as **Custom (OpenAI-compatible)** at the
+sandbox g4f endpoint (`G4F_API_BASE_URL`, normally
+`http://127.0.0.1:8080/v1`) with the g4f model — `auto`, or the model chosen in
+**Sandbox Settings** — and the sandbox API key when `G4F_API_KEY` is set. The
+values are merged into `~/.sillytavern/data/default-user/settings.json` and
+`secrets.json` on every launch; use the connection panel in the UI to change
+them after that.
 
 The hostname form exists because some apps cannot be served from a sub-path:
 they emit absolute URLs, or their client derives its WebSocket URL from the
@@ -781,8 +837,9 @@ does.
 
 The sandbox image runs `sandbox-tray` as its main process. It starts the g4f
 API (`g4f-go api --port 8080 --debug`) as a child and puts a g4f icon in the
-Xfce panel's stock **Status Tray** plugin through `yad`, so the server can be
-managed from the desktop without a terminal:
+Xfce panel's stock **Status Tray** plugin through `yad` — the notification area
+at the **top right** of the desktop. Right-click the logo to open the menu, so
+the server can be managed from the desktop without a terminal:
 
 | Tray item | What it does |
 |-----------|--------------|
