@@ -13,9 +13,11 @@ from g4f.mcp.tools import (
     ImageGenerationTool,
     PythonExecuteTool,
     ShellExecuteTool,
+    PolliPublishAppTool,
     FileReadTool,
     FileListTool,
     FileDeleteTool,
+    FileSearchGlobTool,
 )
 from g4f.mcp.pa_provider import execute_safe_code, get_workspace_dir, SAFE_MODULES
 
@@ -364,6 +366,71 @@ class TestFilesTools(unittest.IsolatedAsyncioTestCase):
         read_tool = FileReadTool()
         result = await read_tool.execute({"path": "../../etc/passwd"})
         self.assertIn("error", result)
+
+
+class TestFileSearchGlobTool(unittest.IsolatedAsyncioTestCase):
+    """Tests for workspace glob search arguments and directory pruning."""
+
+    def _make_workspace(self, tmp: str) -> Path:
+        root = Path(tmp)
+        (root / "src" / "nested").mkdir(parents=True)
+        (root / "src" / "app.js").write_text("app")
+        (root / "src" / "nested" / "deep.js").write_text("deep")
+        (root / "root.js").write_text("root")
+        (root / "provider.pa.js").write_text("provider")
+        for heavy in ("node_modules/pkg", ".toolchain/bin", ".venv/lib"):
+            directory = root / heavy
+            directory.mkdir(parents=True)
+            (directory / "ignored.js").write_text("ignored")
+        return root
+
+    async def test_glob_search_skips_dependency_and_tool_dirs(self):
+        """node_modules/.toolchain/.venv must not slow down or pollute results."""
+        from g4f.mcp import pa_provider
+
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = self._make_workspace(tmp)
+            with mock.patch.object(
+                pa_provider, "get_workspace_dir", return_value=workspace
+            ):
+                result = await FileSearchGlobTool().execute({"query": "**/*.js"})
+        self.assertNotIn("error", result)
+        self.assertEqual(
+            sorted(result["matches"]),
+            ["src/app.js", "src/nested/deep.js"],
+        )
+
+    async def test_glob_search_accepts_snake_case_arguments(self):
+        """Clients send max_results/recursive; both must be honored."""
+        from g4f.mcp import pa_provider
+
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = self._make_workspace(tmp)
+            with mock.patch.object(
+                pa_provider, "get_workspace_dir", return_value=workspace
+            ):
+                limited = await FileSearchGlobTool().execute(
+                    {"query": "**/*.js", "max_results": 1}
+                )
+                flat = await FileSearchGlobTool().execute(
+                    {"query": "*.js", "recursive": False}
+                )
+        self.assertNotIn("error", limited)
+        self.assertEqual(limited["count"], 1)
+        self.assertEqual(sorted(flat["matches"]), ["provider.pa.js", "root.js"])
+
+    async def test_glob_search_zero_results_returns_immediately(self):
+        from g4f.mcp import pa_provider
+
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = self._make_workspace(tmp)
+            with mock.patch.object(
+                pa_provider, "get_workspace_dir", return_value=workspace
+            ):
+                result = await FileSearchGlobTool().execute(
+                    {"query": "**/*.js", "maxResults": 0}
+                )
+        self.assertEqual(result, {"pattern": "**/*.js", "matches": [], "count": 0})
 
 
 class TestSafeCodeExecution(unittest.TestCase):
@@ -1111,6 +1178,113 @@ class TestShellExecuteTool(unittest.IsolatedAsyncioTestCase):
         tool = ShellExecuteTool()
         result = await tool.execute({"command": "echo hi", "cwd": "../../.."})
         self.assertIn("error", result)
+
+
+class TestPolliPublishAppTool(unittest.IsolatedAsyncioTestCase):
+    """Tests for publishing workspace apps through the polli CLI."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.workspace = Path(self.temp_dir.name)
+        self.app = self.workspace / "app"
+        self.app.mkdir()
+        (self.app / "index.html").write_text("<h1>hi</h1>", encoding="utf-8")
+        env = mock.patch.dict(os.environ, {"G4F_DIR": self.temp_dir.name})
+        env.start()
+        self.addCleanup(env.stop)
+
+    async def test_schema(self):
+        tool = PolliPublishAppTool()
+        self.assertIsNotNone(tool.description)
+        schema = tool.input_schema
+        self.assertEqual(schema["type"], "object")
+        self.assertIn("name", schema["properties"])
+        self.assertIn("name", schema["required"])
+        self.assertIn("path", schema["properties"])
+        self.assertIn("verify", schema["properties"])
+
+    async def test_missing_name(self):
+        result = await PolliPublishAppTool().execute({})
+        self.assertIn("error", result)
+
+    async def test_invalid_name(self):
+        result = await PolliPublishAppTool().execute({"name": "Bad Name!"})
+        self.assertIn("error", result)
+        self.assertIn("Invalid site name", result["error"])
+
+    async def test_missing_index_html(self):
+        (self.app / "index.html").unlink()
+        result = await PolliPublishAppTool().execute(
+            {"name": "demo-app", "path": "app"}
+        )
+        self.assertIn("error", result)
+        self.assertIn("index.html", result["error"])
+
+    async def test_path_traversal_blocked(self):
+        result = await PolliPublishAppTool().execute(
+            {"name": "demo-app", "path": "../outside"}
+        )
+        self.assertIn("error", result)
+        self.assertIn("outside the workspace", result["error"])
+
+    async def test_missing_polli_binary(self):
+        with mock.patch("g4f.mcp.tools.shutil.which", return_value=None):
+            result = await PolliPublishAppTool().execute(
+                {"name": "demo-app", "path": "app"}
+            )
+        self.assertIn("error", result)
+        self.assertIn("polli", result["error"])
+
+    async def test_deploy_success(self):
+        process = mock.Mock()
+        process.returncode = 0
+        process.communicate = mock.AsyncMock(
+            return_value=(
+                b'{"name": "demo-app", "url": "https://demo-app.pollinations.app"}',
+                b"",
+            )
+        )
+        spawn = mock.AsyncMock(return_value=process)
+        with mock.patch(
+            "g4f.mcp.tools.shutil.which", return_value="/usr/bin/polli"
+        ), mock.patch("g4f.mcp.tools.asyncio.create_subprocess_exec", new=spawn):
+            result = await PolliPublishAppTool().execute(
+                {"name": "demo-app", "path": "app", "verify": True}
+            )
+
+        self.assertNotIn("error", result)
+        self.assertEqual(result["url"], "https://demo-app.pollinations.app")
+        self.assertTrue(result["verified"])
+        args = spawn.call_args.args
+        self.assertEqual(args[0], "/usr/bin/polli")
+        self.assertIn("--json", args)
+        self.assertIn("sites", args)
+        self.assertIn("deploy", args)
+        self.assertIn("--name", args)
+        self.assertIn("demo-app", args)
+        self.assertIn("--verify", args)
+        self.assertEqual(spawn.call_args.kwargs["cwd"], str(self.app.resolve()))
+
+    async def test_deploy_failure_reports_stderr(self):
+        process = mock.Mock()
+        process.returncode = 1
+        process.communicate = mock.AsyncMock(
+            return_value=(b"", b"Not logged in. Run polli auth login")
+        )
+        with mock.patch(
+            "g4f.mcp.tools.shutil.which", return_value="/usr/bin/polli"
+        ), mock.patch(
+            "g4f.mcp.tools.asyncio.create_subprocess_exec",
+            new=mock.AsyncMock(return_value=process),
+        ):
+            result = await PolliPublishAppTool().execute(
+                {"name": "demo-app", "path": "app"}
+            )
+
+        self.assertIn("error", result)
+        self.assertIn("Not logged in", result["error"])
+        self.assertIn("polli auth login", result["error"])
 
 
 class TestMCPServerShellActivation(unittest.TestCase):

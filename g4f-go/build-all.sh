@@ -51,8 +51,14 @@ for t in "${TARGETS[@]}"; do
     "") ;;
   esac
   echo "==> $GOOS/$GOARCH"
+  LDFLAGS="-s -w -X main.Version=$VERSION"
+  # anet (pulled in by pion/stun) uses //go:linkname into net.zoneCache. Go
+  # 1.23+ restricts that reference, but older linkers don't know this flag.
+  if [ "$GOOS" = "android" ] && [[ "$(go tool link -h 2>&1)" == *-checklinkname* ]]; then
+    LDFLAGS="$LDFLAGS -checklinkname=0"
+  fi
   CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
-    go build -trimpath -ldflags "-s -w -X main.Version=$VERSION" -o "$OUT/$GOOS-$GOARCH/$BIN" .
+    go build -trimpath -ldflags "$LDFLAGS" -o "$OUT/$GOOS-$GOARCH/$BIN" .
   ( cd "$OUT/$GOOS-$GOARCH" && zip -qr "../g4f-go-$VERSION-$GOOS-$GOARCH.zip" . )
 done
 

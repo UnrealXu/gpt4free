@@ -43,6 +43,22 @@ them, delete that directory or run `g4f-go cache clear`.
 `G4F_PYTHON_ONLY=1 g4f-go --version` prints the downloaded interpreter path
 without running gpt4free (useful for wrapping the runtime from other tools).
 
+## Installing on Termux
+
+The installer detects Android/Termux and installs the `android-arm64` release
+into `$PREFIX/bin` (`/data/data/com.termux/files/usr/bin`), which Termux
+already puts on `PATH`:
+
+```
+pkg install curl unzip
+curl -fsSL https://raw.githubusercontent.com/xtekky/gpt4free/main/bin/install.sh | bash
+g4f-go sandbox
+```
+
+Pass `--prefix DIR` (or `G4F_GO_PREFIX`) to install somewhere else. On Termux
+the sandbox launcher uses udocker automatically; it is installed with pip on
+first use (run `pkg install python` first).
+
 ## Building
 
 ```
@@ -71,10 +87,14 @@ g4f-go sandbox [command]    run the g4f sandbox container (g4f-sandbox)
 g4f-go start-desktop-sandbox [--app TOOL] [options]  start the desktop sandbox
 g4f-go sandbox-cli [args]   run sandbox-cli in the desktop container
 g4f-go polli-sandbox        create a Polli cloud sandbox with g4f-go + sandbox-cli
+g4f-go freeflow             run the pi-freeflow proxy without Pi/OMP
+g4f-go freeflow status      show the standalone freeflow endpoint and API key
 g4f-go turn serve           run the embedded STUN/TURN server in the foreground
 g4f-go turn status          show the configured/running STUN/TURN server
 g4f-go turn credentials     mint TURN REST credentials for a client
 g4f-go install g4f          (re)install the g4f package (network)
+g4f-go install              install the g4f-go launcher into a bin on PATH
+g4f-go install --prefix DIR install the launcher into DIR
 g4f-go upgrade              upgrade the g4f package to the latest release
 g4f-go update               update the g4f-go launcher itself
 g4f-go uninstall            remove g4f-go, its runtime, browser and caches
@@ -106,6 +126,32 @@ version, as does `--version`.
 
 An explicit `g4f-go install g4f` (unpinned) or `g4f-go install g4f==X.Y.Z`
 updates the stored pin to match what was installed.
+
+Installing a local checkout (`g4f-go install -e /path/to/gpt4free`) marks the
+runtime as **builtin**. The launcher then serves that package as-is: the
+`api`/`gui` auto-upgrade never replaces it with PyPI's latest. This is what the
+sandbox desktop image uses, so its first `g4f-go api` call does not download or
+upgrade g4f. An explicit `g4f-go install g4f`, `g4f-go upgrade` or `g4f-go
+bootstrap` opts back into PyPI and clears the marker.
+
+## Installing the launcher on PATH (`install`)
+
+`g4f-go install` copies the running launcher into a bin directory that is
+already on `PATH`, so a downloaded or locally built binary can be put on
+`PATH` without re-downloading a release:
+
+```
+g4f-go install                     # install into a writable bin directory on PATH
+g4f-go install --prefix ~/bin      # install into a specific directory
+g4f-go install --dry-run           # show the destination without writing
+```
+
+The default destination is `$G4F_GO_PREFIX` when set, otherwise `$PREFIX/bin`
+on Termux, `~/.local/bin` when it is on `PATH`, or the first writable
+directory on `PATH`. The binary is copied atomically and keeps its executable
+mode; the downloaded CPython runtime and the installed g4f package are not
+touched. `g4f-go install g4f` remains the pip passthrough for the Python
+package.
 
 ## Updating and uninstalling
 
@@ -181,6 +227,43 @@ manager (`apt`, `dnf`, `pacman`, `zypper`, `apk`, Homebrew, `winget`, Chocolatey
 or Scoop) before pulling the image. Set `G4F_SANDBOX_INSTALL_PODMAN=0` to
 disable that automatic install. The full launcher options and environment
 variables are the same as [`sandbox-launcher`](../sandbox-launcher/README.md).
+
+On **Termux/Android** the launcher selects [udocker](https://github.com/indigo-dc/udocker)
+instead: it pulls and runs the same sandbox images in user space, without root
+or a Docker daemon. On first use the launcher installs the pip package (with
+`pkg install python` first) and runs `udocker install` for the tools, so the
+first sandbox start does not stop halfway through. The desktop image works with
+`g4f-go sandbox --desktop`. The udocker root defaults to `~/.udocker` and can
+be moved with `G4F_SANDBOX_UDOCKER_DIR` (useful when `$HOME` is small);
+`G4F_SANDBOX_UDOCKER_EXECMODE` selects the execution mode (`P1`, `P2`, `F1`-`F4`,
+`R1`-`R3` or `S1`, default `P1`). Set `G4F_SANDBOX_INSTALL_UDOCKER=0` to require
+a preinstalled binary and tools. The older native Termux Python backend remains
+available with `--backend termux` (API-only). Selecting another backend
+explicitly, for example `--engine docker`, still wins over the Termux
+autodetection.
+
+## Standalone pi-freeflow (`freeflow`)
+
+The free-model catalog behind `bin/dev-pipeline` is normally loaded as an
+extension by Pi or Oh My Pi (OMP). `g4f-go freeflow` installs the same
+[`pi-freeflow`](https://github.com/trefeon/pi-freeflow) npm package into
+`~/.g4f/freeflow` and runs its proxy daemon directly, with no Pi/OMP host and
+no Python runtime:
+
+```
+g4f-go freeflow                    # install (first run) and serve on :28180
+g4f-go freeflow --port 9090        # use another loopback port
+g4f-go freeflow install --force    # update the npm package
+g4f-go freeflow status             # package, base URL, API key, daemon health
+```
+
+It exposes the OpenAI-compatible endpoint `http://127.0.0.1:28180/v1` and
+prints the bearer token from `~/.pi/agent/token`. The daemon stays in the
+foreground until Ctrl-C, and logs to `~/.pi/agent/pi-freeflow.log`. Existing
+OMP/Pi installs are reused when present; otherwise the package is installed
+with `npm` (Node.js >= 22.19 is required). Set `G4F_FREEFLOW_HOME` to move the
+private install, or `PI_FREEFLOW_DATA_DIR`/`PI_FREEFLOW_PORT` to match the
+extension's own settings.
 
 ## Polli cloud sandbox (`polli-sandbox`)
 

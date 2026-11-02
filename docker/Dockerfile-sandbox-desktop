@@ -68,8 +68,10 @@ SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 #   docker build --build-arg G4F_USER_ID="$(id -u)" ...
 ARG G4F_USER_ID=1000
 
-# G4F_VERSION gives the local checkout a PEP 440 version (setup.py reads it)
-# and becomes the g4f-go version pin (see the g4f-go step below). The G4F_VNC_*
+# G4F_VERSION gives the local checkout a PEP 440 version (setup.py reads it);
+# the editable install below is marked as the builtin g4f-go package, so
+# api/gui runs use it instead of PyPI's latest (see the g4f-go step below).
+# The G4F_VNC_*
 # pair switches on the API's custom noVNC routes: /desktop/ serves the client and
 # /desktop/websockify bridges the browser WebSocket to Xvnc, both on the API port.
 # PYTHONSAFEPATH keeps the working directory off sys.path for `python -m` and
@@ -156,7 +158,7 @@ RUN ln -sf /usr/local/bin/node /usr/local/bin/nodejs && \
     tar -xzf /tmp/novnc.tar.gz -C /usr/share/novnc --strip-components=1 && \
     rm /tmp/novnc.tar.gz
 
-# Desktop menu: "Install & Open ..." entries for the coding CLIs (OpenCode,
+# Desktop menu entries for the coding CLIs (OpenCode,
 # Antigravity, Kilo Code, Gemini CLI, Claude Code, ...), browsers (Google
 # Chrome), local gateways/agents (OmniRoute, OpenClaw), chat UIs (LibreChat,
 # LobeChat, Msty Studio, SillyTavern, Open WebUI) and VS Code Web
@@ -267,18 +269,19 @@ RUN groupadd --gid "${G4F_USER_ID}" pn && \
     mkdir -p /tmp/sandbox-runtime && chown pn:pn /tmp/sandbox-runtime && chmod 0700 /tmp/sandbox-runtime
 
 # g4f-go owns the interpreter and the g4f install. The launcher built in the
-# g4f-go-builder stage goes on PATH, then g4f-go materializes its runtime
-# at build time: CPython plus the PyPI g4f (which brings the deps and writes
-# g4f-go's .installed stamp), then THIS checkout's g4f over it -- so the API the
-# sandbox serves is the repository code, incl. g4f/api/vnc_relay. The checkout
+# g4f-go-builder stage goes on PATH, then g4f-go materializes its runtime at
+# build time and installs THIS checkout as an editable g4f (with its `[all]`
+# dependencies), so the API the sandbox serves is the repository code, incl.
+# g4f/api/vnc_relay. The checkout
 # is copied INTO the editable project (${G4F_DIR}/gpt4free/g4f), not to a
 # second /app/g4f tree: a stray /app/g4f sits on sys.path ahead of the editable
 # install and shadows the live checkout (and, in the image, was root-owned and
 # stale). Keeping a single source tree means `import g4f` always resolves to
 # ${G4F_DIR}/gpt4free/g4f. The compose bind-mount of the repo (/app/gpt4free)
-# stays live. The version pin makes g4f-go treat the overlay as final: its
-# api/gui auto-upgrade would otherwise replace the checkout build with PyPI's
-# next run.
+# stays live. Installing the checkout with `g4f-go install -e` marks the
+# runtime as builtin (`.g4f-runtime/.builtin`), so the launcher's api/gui
+# auto-upgrade leaves the checkout build alone instead of replacing it with
+# PyPI's latest on the first api call.
 #
 # The base image ships no Python, so the embedded runtime is the only
 # interpreter in the image. python3/pip in /usr/local/bin are symlinks into it
@@ -356,7 +359,10 @@ RUN ln -sf "${G4F_CONFIG_DIR}/python-embed/python-home/bin/python3.15" /usr/loca
 # always passes --no-sandbox (see link_chrome_no_sandbox), and both
 # start-browser and g4f's own browser lookup (shutil.which) must find the
 # wrapper instead of the real /usr/bin binary.
-ENV PATH=/home/pn/.local/bin:${PATH}
+# ~/.opencode/bin is where the OpenCode installer puts its binary; keeping it
+# on the image PATH makes `opencode` available in any exec/terminal session
+# after the menu has installed it, not only inside sandbox-cli.
+ENV PATH=/home/pn/.local/bin:/home/pn/.opencode/bin:${PATH}
 
 # Runtime dir for dbus/Xvnc; containers have no logind to create it. Both /tmp
 # paths above are fixed by the X11 protocol / seeded per container, never shared.

@@ -153,7 +153,7 @@ Notes:
 
 ### Sandbox desktop (Docker)
 A full Xfce desktop (TigerVNC + noVNC) with the g4f API and a one-click
-**Install & Open** menu for 100+ AI tools and providers — coding agents,
+**one-click** menu for 100+ AI tools and providers — coding agents,
 browsers, gateways, local runtimes and assistants. See
 [docs/sandbox-desktop](https://g4f.dev/docs/sandbox-desktop) for the start script,
 clipboard, scaling, app volume, user id, password and domain-routing options,
@@ -335,6 +335,8 @@ Add to your `claude_desktop_config.json`:
 - `web_search` - Search the web using DuckDuckGo
 - `web_scrape` - Extract text content from web pages  
 - `image_generation` - Generate images from text prompts
+- `polli_publish_app` - Publish a built app from the workspace to
+  `https://<name>.pollinations.app` with the Pollinations CLI
 
 For detailed MCP documentation, see [g4f/mcp/README.md](g4f/mcp/README.md)
 
