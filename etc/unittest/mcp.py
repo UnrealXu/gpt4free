@@ -1359,6 +1359,97 @@ class TestMCPServerShellActivation(unittest.TestCase):
         self.assertIn("disabled", response.error["message"])
 
 
+class TestBrowserIframeClick(unittest.IsolatedAsyncioTestCase):
+    async def test_frame_path_evaluates_in_nested_frame(self):
+        from g4f.api.cdp_relay import _evaluate_in_frame_path
+
+        calls = []
+
+        async def call(method, **params):
+            calls.append((method, params))
+            if method == "Page.getFrameTree":
+                return {
+                    "frameTree": {
+                        "frame": {"id": "root"},
+                        "childFrames": [
+                            {
+                                "frame": {"id": "first"},
+                                "childFrames": [{"frame": {"id": "nested"}}],
+                            }
+                        ],
+                    }
+                }
+            if method == "Page.createIsolatedWorld":
+                return {"executionContextId": 123}
+            if method == "Runtime.evaluate":
+                return {"result": {"value": {"ok": True}}}
+            self.fail(f"Unexpected CDP method: {method}")
+
+        result = await _evaluate_in_frame_path(call, [0, 0], "click()")
+
+        self.assertEqual(result, {"ok": True})
+        self.assertIn(
+            ("Page.createIsolatedWorld", {"frameId": "nested", "worldName": "g4f-snapshot"}),
+            calls,
+        )
+        self.assertIn(
+            ("Runtime.evaluate", {
+                "expression": "click()",
+                "returnByValue": True,
+                "awaitPromise": True,
+                "contextId": 123,
+            }),
+            calls,
+        )
+
+    async def test_frame_path_rejects_missing_frame(self):
+        from g4f.api.cdp_relay import _evaluate_in_frame_path
+
+        async def call(method, **params):
+            return {"frameTree": {"frame": {"id": "root"}, "childFrames": []}}
+
+        with self.assertRaisesRegex(ValueError, "Frame path does not exist"):
+            await _evaluate_in_frame_path(call, [0], "click()")
+
+    async def test_native_click_translates_iframe_offsets(self):
+        try:
+            from g4f.api.cdp_relay import _native_click
+        except ImportError:
+            self.skipTest("g4f.api.cdp_relay._native_click not available")
+
+        calls = []
+
+        async def call(method, **params):
+            calls.append((method, params))
+            if method == "Page.getFrameTree":
+                return {"frameTree": {"frame": {"id": "root"}, "childFrames": [{"frame": {"id": "f"}}]}}
+            if method == "Page.createIsolatedWorld":
+                return {"executionContextId": 7}
+            if method == "Runtime.evaluate":
+                if params.get("contextId") == 7:
+                    return {"result": {"value": {"ok": True, "x": 10, "y": 20}}}
+                return {"result": {"value": {"x": 100, "y": 200}}}
+            return {}
+
+        result = await _native_click(call, [0], "rect()")
+        self.assertEqual((result["x"], result["y"]), (110, 220))
+        mouse = [p["type"] for m, p in calls if m == "Input.dispatchMouseEvent"]
+        self.assertEqual(mouse, ["mouseMoved", "mousePressed", "mouseReleased"])
+
+    def test_aria_checkbox_roles_are_indexed(self):
+        from g4f.mcp.browser_dom import SNAPSHOT_JS, click_js
+
+        for role in ("checkbox", "radio", "switch"):
+            self.assertIn(f'[role=\\"{role}\\"]', SNAPSHOT_JS)
+            self.assertIn(f'[role=\\"{role}\\"]', click_js(0))
+
+    def test_copy_click_listener_tracks_iframe_path(self):
+        from g4f.api.cdp_relay import _COPY_SCRIPT
+
+        self.assertIn("bindClicks(frame.contentDocument, [...framePath, index])", _COPY_SCRIPT)
+        self.assertIn("frame_path: framePath", _COPY_SCRIPT)
+
+
 class TestBrowserSelectorTools(unittest.IsolatedAsyncioTestCase):
     """Tests for the selector-based browser tools."""
 
